@@ -2,6 +2,9 @@
 
 **SwiftBar/BitBar plug-in to ping servers and display the average round-trip**
 
+## Requisite
+* **gtimeout** – install e.g. together with the **coreutils** (using e.g. Homebrew)
+
 ## Functionality
 * Modes: absolute (current value) / relative (difference between current and previous value)
 * Default server: 1.1.1.1
