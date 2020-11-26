@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 
 # <bitbar.title>Ping Thing</bitbar.title>
-# <bitbar.version>2.0.1</bitbar.version>
+# <bitbar.version>2.1.0</bitbar.version>
 # <bitbar.author>Joss Brown</bitbar.author>
 # <bitbar.author.github>JayBrown</bitbar.author.github>
 # <bitbar.desc>Ping servers to determine the average round-trip time</bitbar.desc>
@@ -17,7 +17,7 @@
 
 export PATH=/usr/bin:/usr/sbin:/bin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin:/opt/local/sbin:/opt/sw/bin:/opt/sw/sbin
 
-version="2.0.1"
+version="2.1.0"
 
 uiprocess="Ping Thing"
 procid="local.lcars.PingThing"
@@ -26,6 +26,7 @@ supportdir="$HOME/Library/Application Support/$procid"
 dbloc="$supportdir/servers.db"
 tmploc="/tmp/$procid.time"
 icon_loc="$supportdir/PingThing.png"
+pauseloc="/tmp/$procid.pause"
 account=$(id -u)
 default_server="1.1.1.1"
 
@@ -980,75 +981,85 @@ else
 	menufont="font=Menlo-Regular size=11"
 fi
 
+paused=false
 if ! command -v gtimeout &>/dev/null ; then
 	echo "[ERR] | color=red $menufont dropdown=false"
 	errstr="❌ gtimeout (coreutils) missing"
 	error=true
 else
-	if [[ $current_server ]] ; then
-		millisecs=$(gtimeout --preserve-status -k 3 --signal=QUIT 10 ping -c 3 -n -q "$current_server" 2>/dev/null | tail -n 1 | awk -F/ '{print $5}')
-		if ! [[ $millisecs ]] ; then
-			error=true
-			routeinfo=$(route get 0.0.0.0 2>&1)
-			if [[ $routeinfo ]] ; then
-				if [[ $routeinfo == "route: writing to routing socket: not in table" ]] ; then
-					echo "[OUT] | color=red $menufont dropdown=false"
-					errstr="⚠️ Network Device Disabled"
-				else
-					interface=$(echo "$routeinfo" | awk -F": " '/interface:/{print $NF}' 2>/dev/null)
-					if [[ $interface ]] ; then
+	if [[ -e "$pauseloc" ]] ; then
+		echo "[ZZZ] | $menufont dropdown=false"
+		paused=true
+		error=false
+	else
+		if [[ $current_server ]] ; then
+			millisecs_raw=$(gtimeout --preserve-status -k 3 --signal=QUIT 10 ping -c 3 -n -q "$current_server" 2>/dev/null | tail -n 2) 
+			ploss=$(echo "$millisecs_raw" | head -1 | awk -F", " '{print $3}' | awk -F"%" '{print $1}')
+			! [[ $ploss ]] && ploss="n/a"
+			millisecs=$(echo "$millisecs_raw" | tail -n 1 | awk -F/ '{print $5}')
+			if ! [[ $millisecs ]] ; then
+				error=true
+				routeinfo=$(route get 0.0.0.0 2>&1)
+				if [[ $routeinfo ]] ; then
+					if [[ $routeinfo == "route: writing to routing socket: not in table" ]] ; then
 						echo "[OFF] | color=red $menufont dropdown=false"
-						errstr="⚠️ Internet Offline"
+						errstr="⚠️ Network Devices Disabled"
 					else
-						echo "[ERR] | color=red $menufont dropdown=false"
-						errstr="❌ Network Device Missing"
+						interface=$(echo "$routeinfo" | awk -F": " '/interface:/{print $NF}' 2>/dev/null)
+						if [[ $interface ]] ; then
+							echo "[O/L] | color=red $menufont dropdown=false"
+							errstr="⚠️ Internet Offline"
+						else
+							echo "[ERR] | color=red $menufont dropdown=false"
+							errstr="❌ Network Device Missing"
+						fi
 					fi
+				else
+					echo "[ERR] | color=red $menufont dropdown=false"
+					errstr="❌ Network Device Error"
 				fi
 			else
-				echo "[ERR] | color=red $menufont dropdown=false"
-				errstr="❌ Network Device Error"
+				error=false
+				if $absolute ; then
+					secs=$(echo "scale=3 ; x=${millisecs}/1000 ; if(x<1) print 0 ; x" | bc 2>/dev/null)
+					if (( $(bc <<< "$secs < 0.100") )) ; then
+						echo "$secs | $menufont dropdown=false"
+					else
+						if (( $(bc <<< "$secs < 1") )) ; then
+							echo "$secs | color=blue $menufont dropdown=false"
+						else
+							echo "$secs | color=red $menufont dropdown=false"
+						fi
+					fi
+				else
+					millisecsprev=$(cat "$tmploc" 2>/dev/null)
+					if ! [[ $millisecsprev ]] ; then
+						echo "-.--- | color=red $menufont dropdown=false"
+					else
+						millisecsdiff=$(bc -l <<< "$millisecs - $millisecsprev")
+						secsdiff=$(echo "scale=3 ; x=${millisecsdiff}/1000 ; if(x<1) print 0 ; x" | bc 2>/dev/null)
+						if (( $(bc <<< "$secsdiff < 0.010") )) ; then
+							if [[ $secsdiff =~ ^(00|0.000|0|000|0000)$ ]] ; then
+								secsdiff="±0.000"
+							else
+								secsdiff=$(echo "$secsdiff" | sed -e "s/^0-\./-0\./" -e "s/^0\./+0\./")
+							fi
+							echo "$secsdiff | $menufont dropdown=false"
+						else
+							if (( $(bc <<< "$secsdiff < 0.100") )) ; then
+								echo "$secsdiff | color=blue $menufont dropdown=false"
+							else
+								echo "$secsdiff | color=red $menufont dropdown=false"
+							fi
+						fi
+					fi
+					echo -n "$millisecs" > "$tmploc" 2>/dev/null
+				fi
 			fi
 		else
-			error=false
-			if $absolute ; then
-				secs=$(echo "scale=3 ; x=${millisecs}/1000 ; if(x<1) print 0 ; x" | bc 2>/dev/null)
-				if (( $(bc <<< "$secs < 0.100") )) ; then
-					echo "$secs | $menufont dropdown=false"
-				else
-					if (( $(bc <<< "$secs < 1") )) ; then
-						echo "$secs | color=blue $menufont dropdown=false"
-					else
-						echo "$secs | color=red $menufont dropdown=false"
-					fi
-				fi
-			else
-				millisecsprev=$(cat "$tmploc" 2>/dev/null)
-				if ! [[ $millisecsprev ]] ; then
-					echo "-.--- | color=red $menufont dropdown=false"
-				else
-					millisecsdiff=$(bc -l <<< "$millisecs - $millisecsprev")
-					secsdiff=$(echo "scale=3 ; x=${millisecsdiff}/1000 ; if(x<1) print 0 ; x" | bc 2>/dev/null)
-					if (( $(bc <<< "$secsdiff < 0.010") )) ; then
-						if [[ $secsdiff =~ ^(00|0.000|0|000|0000)$ ]] ; then
-							secsdiff="±0.000"
-						else
-							secsdiff=$(echo "$secsdiff" | sed -e "s/^0-\./-0\./" -e "s/^0\./+0\./")
-						fi
-						echo "$secsdiff | $menufont dropdown=false"
-					else
-						if (( $(bc <<< "$secsdiff < 0.100") )) ; then
-							echo "$secsdiff | color=blue $menufont dropdown=false"
-						else
-							echo "$secsdiff | color=red $menufont dropdown=false"
-						fi
-					fi
-				fi
-				echo -n "$millisecs" > "$tmploc" 2>/dev/null
-			fi
+			error=true
+			errstr="❌ No Server Entry!"
 		fi
-	else
-		error=true
-		errstr="❌ No Server Entry!"
 	fi
 fi
 
@@ -1058,15 +1069,22 @@ if $error ; then
 	echo "$errstr | color=red"
 	echo "---"
 else
-	if $absolute ; then
-		echo "Average Round-trip | size=11"
-		echo "$millisecs ms"
+	if $paused ; then
+		echo "💤 Pings On Hold | color=blue"
+		echo "---"
 	else
-		echo "Average Round-trips | size=11"
-		echo "Current: $millisecs ms"
-		echo "Previous: $millisecsprev ms"
+		if $absolute ; then
+			echo "Ping | size=11"
+			echo "Time: $millisecs ms"
+			echo "Packet loss: $ploss%"
+		else
+			echo "Pings | size=11"
+			echo "Current Time: $millisecs ms"
+			echo "Previous Time: $millisecsprev ms"
+			echo "Packet loss: $ploss%"
+		fi
+		echo "---"
 	fi
-	echo "---"
 fi
 
 echo "Mode | size=11"
@@ -1104,6 +1122,14 @@ else
 fi
 echo "-----"
 echo "--Add Server | refresh=true terminal=false bash=$0 param1=addserver"
+
+echo "---"
+
+if ! $paused ; then
+	echo "Pause | refresh=true terminal=false bash=/usr/bin/touch param1=\"$pauseloc\" param2=2>/dev/null"
+else
+	echo "Resume | refresh=true terminal=false bash=/bin/rm param1=-f param2=\"$pauseloc\" param3=2>/dev/null"
+fi
 
 echo "---"
 
