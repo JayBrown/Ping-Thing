@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 
 # <bitbar.title>Ping Thing</bitbar.title>
-# <bitbar.version>2.0.0</bitbar.version>
+# <bitbar.version>2.0.1</bitbar.version>
 # <bitbar.author>Joss Brown</bitbar.author>
 # <bitbar.author.github>JayBrown</bitbar.author.github>
 # <bitbar.desc>Ping servers to determine the average round-trip time</bitbar.desc>
@@ -17,7 +17,7 @@
 
 export PATH=/usr/bin:/usr/sbin:/bin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin:/opt/local/sbin:/opt/sw/bin:/opt/sw/sbin
 
-version="2.0.0"
+version="2.0.1"
 
 uiprocess="Ping Thing"
 procid="local.lcars.PingThing"
@@ -865,7 +865,7 @@ SJbGbJCNjd8FyEPbm/GshS0RHWFzEuxvdU0oE2NkafGnoNrSce1vtxJsnG61bkBm
 vJS1EH3XxJjbnpqyztoouPHNSOyyRUWvOe8Fmc0700etRbVZ1EaF6Cw4iqabo5Yu
 DeD8i3q6Ee07wmzXdCx49kCQFViBFdg+YGnW4lZgBVbgJgkrDGAFVmA7hhUGsAIr
 sB3DCgNYgRXYjmGFAazACmzHsMIAVmAFtmP4/6HNXCFf7Je2AAAAAElFTkSuQmCC"
-	echo -n "$icon64" | base64 -d - -o "$icon_loc" &>/dev/null
+	echo -n "$icon64" | base64 --decode - -o "$icon_loc" &>/dev/null
 } 
 
 _createdb () {
