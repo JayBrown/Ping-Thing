@@ -9,7 +9,7 @@
 * Options: switch server / add server / remove server (except default)
 * Other options: open plug-in in editor / manual refresh / reset plug-in
 
-![snap1](https://raw.githubusercontent.com/JayBrown/Ping-Thing/master/img/snap1.jpg)
+![snap1](https://raw.githubusercontent.com/JayBrown/Ping-Thing/main/img/snap1.jpg)
 
 ## Files created
 * `~/Library/Preferences/local.lcars.PingThing.plist`
