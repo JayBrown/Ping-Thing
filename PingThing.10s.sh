@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 
 # <bitbar.title>Ping Thing</bitbar.title>
-# <bitbar.version>2.3.1</bitbar.version>
+# <bitbar.version>2.3.2</bitbar.version>
 # <bitbar.author>Joss Brown</bitbar.author>
 # <bitbar.author.github>JayBrown</bitbar.author.github>
 # <bitbar.desc>Ping servers to determine the average round-trip time</bitbar.desc>
@@ -17,22 +17,101 @@
 
 export PATH=/usr/bin:/usr/sbin:/bin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin:/opt/local/sbin:/opt/sw/bin:/opt/sw/sbin
 
-version="2.3.1"
+version="2.3.2"
 
+# initial variables
 uiprocess="Ping Thing"
 procid="local.lcars.PingThing"
-prefsloc="$HOME/Library/Preferences/$procid.plist"
-supportdir="$HOME/Library/Application Support/$procid"
-dbloc="$supportdir/servers.db"
 tmploc="/tmp/$procid.time"
-icon_loc="$supportdir/PingThing.png"
 pauseloc="/tmp/$procid.pause"
-account=$(id -u)
 repourl="https://github.com/JayBrown/Ping-Thing"
 rvurl="https://raw.githubusercontent.com/JayBrown/Ping-Thing/main/VERSION"
 vcheckloc="/tmp/$procid.check"
 default_server="1.1.1.1"
 
+# look for SF Mono font
+allfontfamilies=$(osascript 2>/dev/null << EOF
+use framework "AppKit"
+set fontFamilyNames to (current application's NSFontManager's sharedFontManager's availableFontFamilies) as list
+return fontFamilyNames
+EOF
+)
+if echo "$allfontfamilies" | grep -q "SF Mono" &>/dev/null ; then
+	menufont="font=SFMono-Regular size=11"
+else
+	menufont="font=Menlo-Regular size=11"
+fi
+
+# warning beep
+_sysbeep () {
+	osascript -e "beep" &>/dev/null
+}
+
+# account & home directory
+accountnames=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/{print $3}')
+if ! [[ $accountnames ]] ; then
+	accountname="$USER"
+	if [[ $accountname ]] ; then
+		HOMEDIR=$(dscl . read /Users/"$accountname" NFSHomeDirectory 2>/dev/null | awk -F": " '{print $2}')
+		if ! [[ $HOMEDIR ]] || ! [[ -d "$HOMEDIR" ]] ; then
+			if [[ -d "/Users/$accountname" ]] ; then
+				HOMEDIR="/Users/$accountname"
+			else
+				HOMEDIR=$(eval echo "~$accountname" 2>/dev/null)
+			fi
+		fi
+	fi
+else
+	while read -r accountname
+	do
+		! [[ $accountname ]] && continue
+		HOMEDIR=$(dscl . read /Users/"$accountname" NFSHomeDirectory 2>/dev/null | awk -F": " '{print $2}')
+		if [[ $HOMEDIR ]] && [[ -d "$HOMEDIR" ]] ; then
+			break
+		else
+			if [[ -d "/Users/$accountname" ]] ; then
+				HOMEDIR="/Users/$accountname"
+				break
+			else
+				HOMEDIR=$(eval echo "~$accountname" 2>/dev/null)
+				if [[ $HOMEDIR ]] && [[ -d "$HOMEDIR" ]] ; then
+					break
+				fi
+			fi
+		fi
+	done < <(echo "$accountnames")
+fi
+if ! [[ $accountname ]] ; then
+	accountname=$(id -un 2>/dev/null)
+fi
+account=$(id -u "$accountname" 2>/dev/null)
+if ! [[ $HOMEDIR ]] || ! [[ -d "$HOMEDIR" ]] ; then
+	if [[ $accountname ]] && [[ -d "/Users/$accountname" ]] ; then
+		HOMEDIR="/Users/$accountname"
+	else 
+		HOMEDIR=~
+		if ! [[ -d "$HOMEDIR" ]] ; then
+			HOMEDIR="$HOME"
+			if ! [[ -d "$HOMEDIR" ]] ; then
+				_sysbeep &
+				echo "[ERR] | $menufont color=red dropdown=false"
+				echo "---"
+				echo "❌ Home folder not found! | color=red"
+				echo "---"
+				echo "Refresh | refresh=true"
+				exit
+			fi
+		fi
+	fi
+fi
+
+# preferences & application support
+prefsloc="$HOMEDIR/Library/Preferences/$procid.plist"
+supportdir="$HOMEDIR/Library/Application Support/$procid"
+dbloc="$supportdir/servers.db"
+icon_loc="$supportdir/PingThing.png"
+
+# about
 if [[ $1 == "about" ]] ; then
 	process=$(basename "$0")
 	read -d '' abouttext <<EOA
@@ -74,6 +153,7 @@ if [[ $1 == "reset" ]] ; then
 	exit
 fi
 
+# create main icon
 _createicon () {
 	icon64="iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAAErdZjwAAAACXBIWXMAABYlAAAW
 JQFJUiTwAAALCGlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJl
@@ -908,7 +988,9 @@ sB3DCgNYgRXYjmGFAazACmzHsMIAVmAFtmP4/6HNXCFf7Je2AAAAAElFTkSuQmCC"
 	echo -n "$icon64" | base64 --decode - -o "$icon_loc" &>/dev/null
 } 
 
+# create server sqlite database
 _createdb () {
+	# fixed ping servers
 	read -d '' fixedservers <<"EOS"
 1.0.0.1
 1.1.1.1
@@ -928,6 +1010,7 @@ EOS
 	allservers="$fixedservers"
 }
 
+# check for support directory incl. database & main icon
 if ! [[ -d "$supportdir" ]] ; then
 	mkdir -p "$supportdir" 2>/dev/null
 	_createdb
@@ -943,6 +1026,7 @@ else
 	fi
 fi
 
+# check for preferences
 if ! [[ -f "$prefsloc" ]] ; then
 	current_server="$default_server"
 	defaults write "$procid" currentServer -string "$current_server" 2>/dev/null
@@ -955,16 +1039,13 @@ else
 		allservers=$(echo -e "$allservers\n$current_server")
 	fi
 	if [[ $(/usr/libexec/PlistBuddy -c "Print:absoluteMode" "$prefsloc" 2>/dev/null) == "false" ]] ; then
-		absolute=false
+		absolute=false # relative values (compared with previous ping)
 	else
-		absolute=true
+		absolute=true # absolute value (one ping; default)
 	fi
 fi
 
-_sysbeep () {
-	osascript -e "beep" &>/dev/null
-}
-
+# notification function
 _notify () {
 	osascript &>/dev/null << EON
 tell application "System Events"
@@ -973,6 +1054,7 @@ end tell
 EON
 }
 
+# user function: add ping server to database
 if [[ $1 == "addserver" ]] ; then
 	while true
 	do
@@ -992,11 +1074,11 @@ end tell
 EOS
 		)
 		! [[ $newserver ]] && exit
-		if $timeout ; then
+		if $timeout ; then # coreutils
 			if gtimeout --preserve-status -k 3 --signal=QUIT 10 ping -c 1 -n -q "$newserver" &>/dev/null ; then
 				break
 			fi
-		else
+		else # pure zsh
 			ping_all=$((ping -c 1 -n -q "$newserver" 2>/dev/null) & pid=$! ; (sleep 3 && kill -3 $pid 2>/dev/null))
 			if [[ $ping_all ]] ; then
 				break
@@ -1009,11 +1091,13 @@ EOS
 	exit
 fi
 
+# user function: delete ping server from database
 if [[ $1 == "deleteserver" ]] ; then
 	sqlite3 "$dbloc" "delete from PingServers where server=\"$2\";" &>/dev/null
 	exit
 fi
 
+# compare local and remote version numbers
 _vcheck () {
 	rversion=$(curl -k -L -s --connect-timeout 10 --max-time 10 "$rvurl" 2>/dev/null)
 	if [[ $rversion ]] ; then
@@ -1029,6 +1113,7 @@ _vcheck () {
 	fi
 }
 
+# version checks
 rversion=""
 update=false
 posixtime=$(date +%s)
@@ -1040,18 +1125,18 @@ else
 fi
 if [[ $lposixtime ]] ; then
 	posixdiff=$(( posixtime - lposixtime ))
-	if [[ $posixdiff -gt 86400 ]] ; then
+	if [[ $posixdiff -gt 86400 ]] ; then # one check per 24 hours
 		_vcheck
 	else
 		pupdate=$(/usr/libexec/PlistBuddy -c "Print:Update" "$prefsloc" 2>/dev/null)
-		if [[ $pupdate ]] ; then
-			if [[ $version == "$pupdate" ]] ; then
+		if [[ $pupdate ]] ; then # user was previously notified of an update
+			if [[ $version == "$pupdate" ]] ; then # user has updated
 				defaults write "$procid" Update -string "" 2>/dev/null
-			else
+			else # user might not yet have updated
 				vlatest=$(echo -e "$pupdate\n$version" | sort -r | head -1)
-				if [[ $vlatest == "$version" ]] ; then
+				if [[ $vlatest == "$version" ]] ; then # user has updated
 					defaults write "$procid" Update -string "" 2>/dev/null
-				else
+				else # user has not yet updated
 					update=true
 				fi
 			fi
@@ -1059,84 +1144,74 @@ if [[ $lposixtime ]] ; then
 	fi
 fi
 
-allfontfamilies=$(osascript 2>/dev/null << EOF
-use framework "AppKit"
-set fontFamilyNames to (current application's NSFontManager's sharedFontManager's availableFontFamilies) as list
-return fontFamilyNames
-EOF
-)
-if echo "$allfontfamilies" | grep -q "SF Mono" &>/dev/null ; then
-	menufont="font=SFMono-Regular size=11"
-else
-	menufont="font=Menlo-Regular size=11"
-fi
-
-paused=false
+# check for gtimeout (coreutils)
 timeout=false
 if command -v gtimeout &>/dev/null ; then
 	timeout=true
 fi
 
-if [[ -e "$pauseloc" ]] ; then
+# check for Ping Thing pause file
+paused=false
+if [[ -e "$pauseloc" ]] ; then # paused
 	if ! $update ; then
-		echo "[ZZZ] | $menufont dropdown=false"
+		echo "[zZz] | $menufont dropdown=false"
 	else
-		echo "[ZZZ] | color=green $menufont dropdown=false"
+		echo "[zZz] | color=green $menufont dropdown=false"
 	fi
 	paused=true
 	error=false
-else
-	if [[ $current_server ]] ; then
-		if $timeout ; then
+else # not paused
+	if [[ $current_server ]] ; then # current server found
+		if $timeout ; then # gtimeout
 			millisecs_raw=$(gtimeout --preserve-status -k 3 --signal=QUIT 10 ping -c 3 -n -q "$current_server" 2>/dev/null | tail -n 2)
-		else
+		else # pure zsh timeout
 			ping_all=$((ping -c 3 -n -q "$current_server" 2>/dev/null) & pid=$! ; (sleep 5 && kill -3 $pid 2>/dev/null))
 			millisecs_raw=$(echo "$ping_all" | tail -n 2)
 		fi
-		ploss=$(echo "$millisecs_raw" | head -1 | awk -F", " '{print $3}' | awk -F"%" '{print $1}')
+		ploss=$(echo "$millisecs_raw" | head -1 | awk -F", " '{print $3}' | awk -F"%" '{print $1}') # packet loss
 		! [[ $ploss ]] && ploss="n/a"
 		millisecs=$(echo "$millisecs_raw" | tail -n 1 | awk -F/ '{print $5}')
-		if ! [[ $millisecs ]] ; then
+		if ! [[ $millisecs ]] ; then # no return from ping
 			error=true
 			routeinfo=$(route get 0.0.0.0 2>&1)
 			if [[ $routeinfo ]] ; then
-				if [[ $routeinfo == "route: writing to routing socket: not in table" ]] ; then
+				if [[ $routeinfo == "route: writing to routing socket: not in table" ]] ; then # no default route
 					echo "[OFF] | color=red $menufont dropdown=false"
 					errstr="⚠️ Network Devices Disabled"
 				else
 					interface=$(echo "$routeinfo" | awk -F": " '/interface:/{print $NF}' 2>/dev/null)
-					if [[ $interface ]] ; then
-						echo "[O/L] | color=red $menufont dropdown=false"
+					if [[ $interface ]] ; then # interface active, i.e. probably offline (blank)
+						echo "-.--- | color=red $menufont dropdown=false"
 						errstr="⚠️ Internet Offline"
-					else
+					else # no network device
 						echo "[ERR] | color=red $menufont dropdown=false"
 						errstr="❌ Network Device Missing"
 					fi
 				fi
-			else
+			else # no info from route command (incl. stderr)
 				echo "[ERR] | color=red $menufont dropdown=false"
 				errstr="❌ Network Device Error"
 			fi
-		else
+		else # ping has returned a value
 			error=false
-			if $absolute ; then
+			if $absolute ; then # just absolute values of one ping command
 				secs=$(echo "scale=3 ; x=${millisecs}/1000 ; if(x<1) print 0 ; x" | bc 2>/dev/null)
 				if $update ; then
 					echo "$secs | color=green $menufont dropdown=false"
 				else
-					if (( $(bc <<< "$secs < 0.100") )) ; then
+					if (( $(bc <<< "$secs < 0.100") )) ; then # lower threshold
 						echo "$secs | $menufont dropdown=false"
 					else
-						if (( $(bc <<< "$secs < 1") )) ; then
+						if (( $(bc <<< "$secs < 1") )) ; then # upper threshold
 							echo "$secs | color=blue $menufont dropdown=false"
 						else
 							echo "$secs | color=red $menufont dropdown=false"
 						fi
 					fi
 				fi
-			else
+			else # relative values +/- compared with previous ping
 				millisecsprev=$(cat "$tmploc" 2>/dev/null)
-				if ! [[ $millisecsprev ]] ; then
+				if ! [[ $millisecsprev ]] ; then # no reference (blank for first run)
 					if ! $update ; then
 						echo "-.--- | color=red $menufont dropdown=false"
 					else
@@ -1145,10 +1220,10 @@ else
 				else
 					millisecsdiff=$(bc -l <<< "$millisecs - $millisecsprev")
 					secsdiff=$(echo "scale=3 ; x=${millisecsdiff}/1000 ; if(x<1) print 0 ; x" | bc 2>/dev/null)
-					if (( $(bc <<< "$secsdiff < 0.010") )) ; then
-						if [[ $secsdiff =~ ^(00|0.000|0|000|0000)$ ]] ; then
+					if (( $(bc <<< "$secsdiff < 0.010") )) ; then # lower threshold
+						if [[ $secsdiff =~ ^(00|0.000|0|000|0000)$ ]] ; then # add +/-
 							secsdiff="±0.000"
-						else
+						else # flip strings or add leading zero
 							secsdiff=$(echo "$secsdiff" | sed -e "s/^0-\./-0\./" -e "s/^0\./+0\./")
 						fi
 						if ! $update ; then
@@ -1160,7 +1235,7 @@ else
 						if $update ; then
 							echo "$secsdiff | color=green $menufont dropdown=false"
 						else
-							if (( $(bc <<< "$secsdiff < 0.100") )) ; then
+							if (( $(bc <<< "$secsdiff < 0.100") )) ; then # upper threshold
 								echo "$secsdiff | color=blue $menufont dropdown=false"
 							else
 								echo "$secsdiff | color=red $menufont dropdown=false"
@@ -1171,7 +1246,7 @@ else
 				echo -n "$millisecs" > "$tmploc" 2>/dev/null
 			fi
 		fi
-	else
+	else # no server entry found (for whatever reason)
 		error=true
 		errstr="❌ No Server Entry!"
 	fi
@@ -1179,6 +1254,7 @@ fi
 
 echo "---"
 
+# leading output
 if $error ; then
 	echo "$errstr | color=red"
 	echo "---"
@@ -1205,6 +1281,7 @@ else
 	fi
 fi
 
+# ping modes (direct preferences)
 echo "Mode | size=11"
 if $absolute ; then
 	echo "Absolute | checked=true"
@@ -1216,11 +1293,12 @@ fi
 
 echo "---"
 
+# ping server selection / deletion / addition
 echo "Ping Servers"
 if [[ $allservers ]] ; then
 	while read -r server
 	do
-		if [[ $server == "$default_server" ]] ; then
+		if [[ $server == "$default_server" ]] ; then # can't be deleted
 			if [[ $server == "$current_server" ]] ; then
 				echo "--$server (Default) | checked=true"
 			else
@@ -1231,6 +1309,7 @@ if [[ $allservers ]] ; then
 				echo "--$server | checked=true"
 			else
 				echo "--$server | refresh=true terminal=false bash=/usr/bin/defaults param1=write param2=\"$procid\" param3=currentServer param4=-string param5=\"$server\" param6=\"2>/dev/null\""
+				# alternates for deletion (not for default server)
 				echo "--Delete $server | alternate=true refresh=true terminal=false bash=$0 param1=deleteserver param2=\"$server\""
 			fi
 		fi
@@ -1243,6 +1322,7 @@ echo "--Add Server | refresh=true terminal=false bash=$0 param1=addserver"
 
 echo "---"
 
+# pause or resume Ping Thing (write or remove pause file)
 if ! $paused ; then
 	echo "Pause | refresh=true terminal=false bash=/usr/bin/touch param1=\"$pauseloc\" param2=2>/dev/null"
 else
@@ -1251,15 +1331,19 @@ fi
 
 echo "---"
 
+# refresh or reset (alternate)
 echo "Refresh | refresh=true"
 echo "Reset | alternate=true refresh=true terminal=false bash=$0 param1=reset"
 
 echo "---"
 
+# dropdown menu Ping Thing icon
 pticon="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"
 
+# dropdown menu info icon
 infoicon="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"
 
+# gtimeout info strings
 _coreutilsinfo () {
 	echo "--gtimeout & coreutils | image=\"$infoicon\" color=black"
 	echo "-----"
@@ -1268,6 +1352,7 @@ _coreutilsinfo () {
 	echo "--gtimeout (part of coreutils)| color=teal size=11"
 }
 
+# version / about / open in editor
 echo "Ping Thing v$version | image=\"$pticon\" terminal=false bash=$0 param1=about"
 if ! $timeout ; then
 	_coreutilsinfo
