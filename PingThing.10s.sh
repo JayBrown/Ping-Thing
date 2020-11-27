@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 
 # <bitbar.title>Ping Thing</bitbar.title>
-# <bitbar.version>2.3.0</bitbar.version>
+# <bitbar.version>2.3.1</bitbar.version>
 # <bitbar.author>Joss Brown</bitbar.author>
 # <bitbar.author.github>JayBrown</bitbar.author.github>
 # <bitbar.desc>Ping servers to determine the average round-trip time</bitbar.desc>
@@ -17,7 +17,7 @@
 
 export PATH=/usr/bin:/usr/sbin:/bin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin:/opt/local/sbin:/opt/sw/bin:/opt/sw/sbin
 
-version="2.3.0"
+version="2.3.1"
 
 uiprocess="Ping Thing"
 procid="local.lcars.PingThing"
@@ -32,6 +32,42 @@ repourl="https://github.com/JayBrown/Ping-Thing"
 rvurl="https://raw.githubusercontent.com/JayBrown/Ping-Thing/main/VERSION"
 vcheckloc="/tmp/$procid.check"
 default_server="1.1.1.1"
+
+if [[ $1 == "about" ]] ; then
+	process=$(basename "$0")
+	read -d '' abouttext <<EOA
+$uiprocess ($process)
+$version
+
+SwiftBar/BitBar Plug-in (zsh script)
+
+Copyright © 2020 Joss Brown (pseud.)
+All rights reserved
+German laws apply
+Place of Jurisdiction: Berlin, Germany
+
+License: MIT
+Limited Liability
+EOA
+	aboutchoice=$(osascript 2>/dev/null << EOI
+tell application "System Events"
+	activate
+	set theLogoPath to POSIX file "$icon_loc"
+	set theUserChoice to button returned of (display dialog "$abouttext" ¬
+		buttons {"Repository", "Close"} ¬
+		default button 2 ¬
+		cancel button "Close" ¬
+		with title "About Ping Thing" ¬
+		with icon file theLogoPath ¬
+		giving up after 180)
+end tell
+EOI
+	)
+	if [[ $aboutchoice == "Repository" ]] ; then
+		open "$repourl" 2>/dev/null
+	fi
+	exit
+fi
 
 if [[ $1 == "reset" ]] ; then
 	rm -rf "$supportdir" "$prefsloc" "$tmploc" 2>/dev/null
@@ -1222,8 +1258,24 @@ echo "---"
 
 pticon="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"
 
-echo "Ping Thing v$version | image=\"$pticon\""
+infoicon="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"
+
+_coreutilsinfo () {
+	echo "--gtimeout & coreutils | image=\"$infoicon\" color=black"
+	echo "-----"
+	echo "--For optimal performance | color=teal size=11"
+	echo "--please consider installing | color=teal size=11"
+	echo "--gtimeout (part of coreutils)| color=teal size=11"
+}
+
+echo "Ping Thing v$version | image=\"$pticon\" terminal=false bash=$0 param1=about"
+if ! $timeout ; then
+	_coreutilsinfo
+fi
 scriptpath="$0"
 echo "Open in Editor… | alternate=true image=\"$pticon\" terminal=false bash=/usr/bin/open param1=\"$scriptpath\""
+if ! $timeout ; then
+	_coreutilsinfo
+fi
 
 exit
