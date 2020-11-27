@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 
 # <bitbar.title>Ping Thing</bitbar.title>
-# <bitbar.version>2.1.0</bitbar.version>
+# <bitbar.version>2.2.0</bitbar.version>
 # <bitbar.author>Joss Brown</bitbar.author>
 # <bitbar.author.github>JayBrown</bitbar.author.github>
 # <bitbar.desc>Ping servers to determine the average round-trip time</bitbar.desc>
@@ -17,7 +17,7 @@
 
 export PATH=/usr/bin:/usr/sbin:/bin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin:/opt/local/sbin:/opt/sw/bin:/opt/sw/sbin
 
-version="2.1.0"
+version="2.2.0"
 
 uiprocess="Ping Thing"
 procid="local.lcars.PingThing"
@@ -28,6 +28,9 @@ tmploc="/tmp/$procid.time"
 icon_loc="$supportdir/PingThing.png"
 pauseloc="/tmp/$procid.pause"
 account=$(id -u)
+repourl="https://github.com/JayBrown/Ping-Thing"
+rvurl="https://raw.githubusercontent.com/JayBrown/Ping-Thing/main/VERSION"
+vcheckloc="/tmp/$procid.check"
 default_server="1.1.1.1"
 
 if [[ $1 == "reset" ]] ; then
@@ -969,6 +972,51 @@ if [[ $1 == "deleteserver" ]] ; then
 	exit
 fi
 
+_vcheck () {
+	rversion=$(curl -k -L -s --connect-timeout 10 --max-time 10 "$rvurl" 2>/dev/null)
+	if [[ $rversion ]] ; then
+		vlatest=$(echo -e "$rversion\n$version" | sort -r | head -1)
+		if [[ $vlatest == "$version" ]] ; then
+			defaults write "$procid" Update -string "" 2>/dev/null
+		else
+			update=true
+			_notify "ℹ️ Update Available" "v$vlatest"
+			defaults write "$procid" Update -string "$vlatest" 2>/dev/null
+		fi
+		echo -n "$posixtime" > "$vcheckloc" 2>/dev/null
+	fi
+}
+
+rversion=""
+update=false
+posixtime=$(date +%s)
+if ! [[ -f "$vcheckloc" ]] ; then
+	echo -n "1" > "$vcheckloc" 2>/dev/null
+	lposixtime="1"
+else
+	lposixtime=$(cat "$vcheckloc" 2>/dev/null)
+fi
+if [[ $lposixtime ]] ; then
+	posixdiff=$(( $posixtime - $lposixtime ))
+	if [[ $posixdiff -gt 86400 ]] ; then
+		_vcheck
+	else
+		pupdate=$(/usr/libexec/PlistBuddy -c "Print:Update" "$prefsloc" 2>/dev/null)
+		if [[ $pupdate ]] ; then
+			if [[ $version == "$pupdate" ]] ; then
+				defaults write "$procid" Update -string "" 2>/dev/null
+			else
+				vlatest=$(echo -e "$pupdate\n$version" | sort -r | head -1)
+				if [[ $vlatest == "$version" ]] ; then
+					defaults write "$procid" Update -string "" 2>/dev/null
+				else
+					update=true
+				fi
+			fi
+		fi
+	fi
+fi
+
 allfontfamilies=$(osascript 2>/dev/null << EOF
 use framework "AppKit"
 set fontFamilyNames to (current application's NSFontManager's sharedFontManager's availableFontFamilies) as list
@@ -988,7 +1036,11 @@ if ! command -v gtimeout &>/dev/null ; then
 	error=true
 else
 	if [[ -e "$pauseloc" ]] ; then
-		echo "[ZZZ] | $menufont dropdown=false"
+		if ! $update ; then
+			echo "[ZZZ] | $menufont dropdown=false"
+		else
+			echo "[ZZZ] | color=green $menufont dropdown=false"
+		fi
 		paused=true
 		error=false
 	else
@@ -1022,19 +1074,27 @@ else
 				error=false
 				if $absolute ; then
 					secs=$(echo "scale=3 ; x=${millisecs}/1000 ; if(x<1) print 0 ; x" | bc 2>/dev/null)
-					if (( $(bc <<< "$secs < 0.100") )) ; then
-						echo "$secs | $menufont dropdown=false"
+					if $update ; then
+						echo "$secs | color=green $menufont dropdown=false"
 					else
-						if (( $(bc <<< "$secs < 1") )) ; then
-							echo "$secs | color=blue $menufont dropdown=false"
+						if (( $(bc <<< "$secs < 0.100") )) ; then
+							echo "$secs | $menufont dropdown=false"
 						else
-							echo "$secs | color=red $menufont dropdown=false"
+							if (( $(bc <<< "$secs < 1") )) ; then
+								echo "$secs | color=blue $menufont dropdown=false"
+							else
+								echo "$secs | color=red $menufont dropdown=false"
+							fi
 						fi
 					fi
 				else
 					millisecsprev=$(cat "$tmploc" 2>/dev/null)
 					if ! [[ $millisecsprev ]] ; then
-						echo "-.--- | color=red $menufont dropdown=false"
+						if ! $update ; then
+							echo "-.--- | color=red $menufont dropdown=false"
+						else
+							echo "-.--- | color=green $menufont dropdown=false"
+						fi
 					else
 						millisecsdiff=$(bc -l <<< "$millisecs - $millisecsprev")
 						secsdiff=$(echo "scale=3 ; x=${millisecsdiff}/1000 ; if(x<1) print 0 ; x" | bc 2>/dev/null)
@@ -1044,12 +1104,20 @@ else
 							else
 								secsdiff=$(echo "$secsdiff" | sed -e "s/^0-\./-0\./" -e "s/^0\./+0\./")
 							fi
-							echo "$secsdiff | $menufont dropdown=false"
-						else
-							if (( $(bc <<< "$secsdiff < 0.100") )) ; then
-								echo "$secsdiff | color=blue $menufont dropdown=false"
+							if ! $update ; then
+								echo "$secsdiff | $menufont dropdown=false"
 							else
-								echo "$secsdiff | color=red $menufont dropdown=false"
+								echo "$secsdiff | color=green $menufont dropdown=false"
+							fi
+						else
+							if $update ; then
+								echo "$secsdiff | color=green $menufont dropdown=false"
+							else
+								if (( $(bc <<< "$secsdiff < 0.100") )) ; then
+									echo "$secsdiff | color=blue $menufont dropdown=false"
+								else
+									echo "$secsdiff | color=red $menufont dropdown=false"
+								fi
 							fi
 						fi
 					fi
@@ -1069,6 +1137,10 @@ if $error ; then
 	echo "$errstr | color=red"
 	echo "---"
 else
+	if $update ; then
+		echo "Update Available: v$vlatest | color=green href=\"$repourl\""
+		echo "---"
+	fi
 	if $paused ; then
 		echo "💤 Pings On Hold | color=blue"
 		echo "---"
